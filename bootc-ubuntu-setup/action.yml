@@ -5,9 +5,28 @@ inputs:
     description: 'Install libvirt and virtualization stack'
     required: false
     default: 'false'
+outputs:
+  host-os:
+    description: >-
+      The runner's OS as ID-VERSION_ID from os-release (e.g. ubuntu-24.04),
+      read before this action installs anything. On 24.04 the packages
+      installed here upgrade base-files, so os-release reports a newer
+      release afterwards; branch on this instead.
+    value: ${{ steps.host.outputs.idv }}
 runs:
   using: 'composite'
   steps:
+    # On 24.04 the packages below pull in a newer libc6, which in turn
+    # upgrades base-files and with it /usr/lib/os-release. Detect the host
+    # once, before anything is installed, and have later steps use that.
+    - name: Detect host OS
+      id: host
+      shell: bash
+      run: |
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . /usr/lib/os-release
+        echo "idv=${ID}-${VERSION_ID}" >> "$GITHUB_OUTPUT"
     # The default runners have TONS of crud on them...
     - name: Free up disk space on runner
       shell: bash
@@ -41,9 +60,10 @@ runs:
     # We really want support for heredocs
     - name: Install required packages
       shell: bash
+      env:
+        IDV: ${{ steps.host.outputs.idv }}
       run: |
         set -eux
-        IDV=$(. /usr/lib/os-release && echo ${ID}-${VERSION_ID})
         case "${IDV}" in
           ubuntu-24.04)
             # 24.04's podman is too old (no heredoc support, manifest bugs);
@@ -121,11 +141,12 @@ runs:
     - name: Install libvirt and virtualization stack
       if: ${{ inputs.libvirt == 'true' }}
       shell: bash
+      env:
+        IDV: ${{ steps.host.outputs.idv }}
       run: |
         set -xeuo pipefail
-        idv=$(. /usr/lib/os-release && printf '%s-%s' "$ID" "$VERSION_ID")
         firmware_packages=()
-        if [ "$idv" = ubuntu-26.04 ]; then
+        if [ "$IDV" = ubuntu-26.04 ]; then
           # Unsealed bootc tests request bcvk's uefi-insecure mode:
           # https://github.com/bootc-dev/bootc/blob/12f03a042b868f40ec850c2496babda1d66775d5/crates/xtask/src/bcvk.rs#L113-L120
           # This becomes a libvirt secure=no firmware request. Resolute's
@@ -171,11 +192,12 @@ runs:
     - name: Install fixed QEMU from Ubuntu Resolute
       if: ${{ inputs.libvirt == 'true' }}
       shell: bash
+      env:
+        IDV: ${{ steps.host.outputs.idv }}
       run: |
         set -xeuo pipefail
-        idv=$(. /usr/lib/os-release && printf '%s-%s' "$ID" "$VERSION_ID")
-        if [ "$idv" != ubuntu-24.04 ]; then
-          printf 'Skipping Resolute QEMU setup on %s\n' "$idv"
+        if [ "$IDV" != ubuntu-24.04 ]; then
+          printf 'Skipping Resolute QEMU setup on %s\n' "$IDV"
           exit 0
         fi
         case "$(dpkg --print-architecture)" in
