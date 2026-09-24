@@ -5,9 +5,28 @@ inputs:
     description: 'Install libvirt and virtualization stack'
     required: false
     default: 'false'
+outputs:
+  host-os:
+    description: >-
+      The runner's OS as ID-VERSION_ID from os-release (e.g. ubuntu-24.04),
+      read before this action installs anything. On 24.04 the packages
+      installed here upgrade base-files, so os-release reports a newer
+      release afterwards; branch on this instead.
+    value: ${{ steps.host.outputs.idv }}
 runs:
   using: 'composite'
   steps:
+    # On 24.04 the packages below pull in a newer libc6, which in turn
+    # upgrades base-files and with it /usr/lib/os-release. Detect the host
+    # once, before anything is installed, and have later steps use that.
+    - name: Detect host OS
+      id: host
+      shell: bash
+      run: |
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        . /usr/lib/os-release
+        echo "idv=${ID}-${VERSION_ID}" >> "$GITHUB_OUTPUT"
     # The default runners have TONS of crud on them...
     - name: Free up disk space on runner
       shell: bash
@@ -41,14 +60,26 @@ runs:
     # We really want support for heredocs
     - name: Install required packages
       shell: bash
+      env:
+        IDV: ${{ steps.host.outputs.idv }}
       run: |
         set -eux
-        IDV=$(. /usr/lib/os-release && echo ${ID}-${VERSION_ID})
         case "${IDV}" in
           ubuntu-24.04)
-            # 24.04's podman is too old (no heredoc support, manifest bugs);
-            # pull newer packages from plucky (25.04).
-            # plucky is the next release. Historically we pointed straight at
+            # 24.04's podman is too old (no heredoc support, manifest bugs),
+            # so take the container stack from resolute (26.04), the same
+            # series 26.04 runners install natively (though they also get
+            # its -updates). Plucky's (25.04) podman
+            # and buildah are built with go1.24.1, which intermittently
+            # segfaults on thread exit on the runners' 6.11+ kernels
+            # (https://github.com/golang/go/issues/73141, fixed in go1.24.3);
+            # a podman build RUN step then fails with exit status 139.
+            #
+            # Plucky stays enabled at the default priority: it still supplies
+            # the newer libvirt stack (libvirt, OVMF, virtiofsd) below, and
+            # anything else consumers install later.
+            #
+            # Historically we pointed straight at
             # azure.archive.ubuntu.com, but that single Azure-regional mirror suffers
             # chronic connection timeouts on GitHub Actions runners. This is a
             # widespread, long-standing issue, not specific to us:
@@ -76,15 +107,46 @@ runs:
               mirror="http://ports.ubuntu.com/ubuntu-ports"
             fi
             echo "deb ${mirror} plucky universe main" | sudo tee /etc/apt/sources.list.d/plucky.list
+            # Only resolute's release pocket, deliberately without -updates
+            # or -security, as with plucky: the versions installed here then
+            # only change when this file does, which keeps CI reproducible.
+            # The flip side is that resolute fixes arrive only when someone
+            # points this elsewhere.
+            echo "deb ${mirror} resolute main universe" | sudo tee /etc/apt/sources.list.d/resolute.list
+            # Keep resolute below the normal candidate for every package, so
+            # it is only used where we explicitly ask for it with -t resolute
+            # (here, and for QEMU below).
+            printf '%s\n' \
+              'Package: *' \
+              'Pin: release n=resolute' \
+              'Pin-Priority: 50' | sudo tee /etc/apt/preferences.d/resolute
             # Raise apt retries slightly above the compiled-in default of 3 to tolerate
             # transient network blips (covers ~2-3 min of cumulative retry delay with
             # apt's exponential backoff, capped at 30s/attempt). This used to be set to
             # 35 (~15 min) specifically to ride out azure.archive.ubuntu.com outages;
             # now that we no longer use that mirror, a much smaller value suffices.
             echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries
+            # The resolute closure below upgrades libc6, after which
+            # needrestart would restart most host services (journald,
+            # rsyslog, containerd, ...) in the middle of the job; rsyslog
+            # has been seen to crash doing so. Only list them instead. A
+            # config file rather than NEEDRESTART_SUSPEND on each apt call,
+            # so that it also covers the libvirt step and later installs by
+            # consumers.
+            sudo mkdir -p /etc/needrestart/conf.d
+            echo "\$nrconf{restart} = 'l';" | sudo tee /etc/needrestart/conf.d/90-bootc-ubuntu-setup.conf
             /bin/time -f '%E %C' sudo apt update
-            # skopeo is currently older in plucky for some reason hence --allow-downgrades
-            /bin/time -f '%E %C' sudo apt install -y --allow-downgrades crun/plucky buildah/plucky podman/plucky skopeo/plucky just
+            # -t resolute resolves the dependency closure from resolute too;
+            # that includes libc6 2.43, which also upgrades base-files, so
+            # /usr/lib/os-release reports 26.04 afterwards (see the "Detect
+            # host OS" step). Recommends are skipped because they would drag
+            # in e.g. resolute's python3 (via criu); passt (the default
+            # rootless network backend) and catatonit (podman run --init)
+            # are the ones worth having. conmon, netavark and aardvark-dns
+            # are listed explicitly because podman's dependencies on them
+            # are already satisfied by noble's much older versions.
+            /bin/time -f '%E %C' sudo apt-get -t resolute install -y --no-install-recommends \
+              crun buildah podman skopeo conmon netavark aardvark-dns passt catatonit just
             ;;
           ubuntu-26.04)
             # 26.04 ships a sufficiently modern podman with heredoc support;
@@ -121,11 +183,12 @@ runs:
     - name: Install libvirt and virtualization stack
       if: ${{ inputs.libvirt == 'true' }}
       shell: bash
+      env:
+        IDV: ${{ steps.host.outputs.idv }}
       run: |
         set -xeuo pipefail
-        idv=$(. /usr/lib/os-release && printf '%s-%s' "$ID" "$VERSION_ID")
         firmware_packages=()
-        if [ "$idv" = ubuntu-26.04 ]; then
+        if [ "$IDV" = ubuntu-26.04 ]; then
           # Unsealed bootc tests request bcvk's uefi-insecure mode:
           # https://github.com/bootc-dev/bootc/blob/12f03a042b868f40ec850c2496babda1d66775d5/crates/xtask/src/bcvk.rs#L113-L120
           # This becomes a libvirt secure=no firmware request. Resolute's
@@ -171,11 +234,12 @@ runs:
     - name: Install fixed QEMU from Ubuntu Resolute
       if: ${{ inputs.libvirt == 'true' }}
       shell: bash
+      env:
+        IDV: ${{ steps.host.outputs.idv }}
       run: |
         set -xeuo pipefail
-        idv=$(. /usr/lib/os-release && printf '%s-%s' "$ID" "$VERSION_ID")
-        if [ "$idv" != ubuntu-24.04 ]; then
-          printf 'Skipping Resolute QEMU setup on %s\n' "$idv"
+        if [ "$IDV" != ubuntu-24.04 ]; then
+          printf 'Skipping Resolute QEMU setup on %s\n' "$IDV"
           exit 0
         fi
         case "$(dpkg --print-architecture)" in
@@ -193,29 +257,11 @@ runs:
         esac
         qemu_binary="qemu-system-$(uname -m)"
 
-        # Keep Resolute below the normal candidate for every package.  The
-        # explicitly requested QEMU packages still bring their dependency
-        # closure (including glibc 2.43); that is acceptable on this
+        # The resolute source and its low-priority pin were set up with the
+        # container stack above. The explicitly requested QEMU packages
+        # still bring their dependency closure; that is acceptable on this
         # disposable CI runner; copying just the executable would leave its
         # runtime libraries behind.
-        printf '%s\n' \
-          'Package: *' \
-          'Pin: release n=resolute' \
-          'Pin-Priority: 50' | sudo tee /etc/apt/preferences.d/resolute-qemu >/dev/null
-
-        if [ "$(dpkg --print-architecture)" = amd64 ]; then
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            mirror='mirror+file:/etc/apt/apt-mirrors.txt'
-          else
-            mirror='http://archive.ubuntu.com/ubuntu'
-          fi
-        else
-          mirror='http://ports.ubuntu.com/ubuntu-ports'
-        fi
-        printf 'deb %s resolute main universe\n' "$mirror" | \
-          sudo tee /etc/apt/sources.list.d/resolute-qemu.list >/dev/null
-        timeout --foreground --signal=TERM --kill-after=30s 5m sudo apt-get update
-
         # Keep ipxe-qemu in this explicit target transaction: its ROM must
         # match the QEMU userspace rather than the older package from Plucky.
         timeout --foreground --signal=TERM --kill-after=30s 5m \
