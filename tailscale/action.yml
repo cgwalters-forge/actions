@@ -1,0 +1,57 @@
+name: Tailscale
+description: >-
+  Join the tailnet with tailscale/github-action, then make tailscaled's
+  LocalAPI socket root's only, so that other local users can't use the
+  node's tailnet access.
+inputs:
+  oauth-client-id:
+    description: >-
+      Client ID of the Tailscale OIDC federated identity, the only login
+      this action passes on (the job needs id-token write permission).
+    required: false
+    default: ""
+  audience:
+    description: Audience of the OIDC federated identity.
+    required: false
+    default: ""
+  tags:
+    description: Comma-separated tags for the node.
+    required: false
+    default: ""
+  hostname:
+    description: Node name; empty for tailscale/github-action's default, from the runner name.
+    required: false
+    default: ""
+  args:
+    description: Additional arguments to `tailscale up`, e.g. --accept-dns=false.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Connect to the tailnet
+      id: join
+      uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+      with:
+        oauth-client-id: ${{ inputs.oauth-client-id }}
+        audience: ${{ inputs.audience }}
+        tags: ${{ inputs.tags }}
+        hostname: ${{ inputs.hostname }}
+        args: ${{ inputs.args }}
+    # The LocalAPI socket is 0666 and doesn't check who dials through it:
+    # with it, any local user could `tailscale nc` to every node the tags
+    # allow, as this node, and list the tailnet with `tailscale status`.
+    # tailscaled leaves an existing directory's mode alone on restart.
+    # Also when joining failed: tailscaled may be running anyway, and a
+    # caller's continue-on-error would go on with its socket open.
+    - name: Make tailscaled's LocalAPI root's only
+      if: always()
+      shell: bash
+      env:
+        JOINED: ${{ steps.join.outcome == 'success' }}
+      run: |
+        if ! sudo test -d /var/run/tailscale; then echo "tailscaled is not running"; exit 0; fi
+        sudo chmod 0700 /var/run/tailscale
+        echo "/var/run/tailscale: $(sudo stat -c '%a %U:%G' /var/run/tailscale)"
+        # root still gets through (by path: RHEL's sudo has no /usr/local/bin in its PATH).
+        if test "$JOINED" = true; then sudo "$(command -v tailscale)" status --self >/dev/null; fi

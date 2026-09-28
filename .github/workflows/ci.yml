@@ -58,3 +58,30 @@ jobs:
         env:
           SYMLINK: ${{ steps.share-symlink.outcome }}
         run: node sandbox-share/check.mjs
+      # tailscale without a tailnet: with no id-token permission the login
+      # fails after tailscaled started (and after the job user reached its
+      # LocalAPI, which the action's own readiness check does), so this
+      # shows the socket closed even when joining fails.
+      - id: tailscale
+        continue-on-error: true
+        uses: ./tailscale
+        with:
+          oauth-client-id: ci-no-login
+          audience: ci-no-login
+          tags: tag:ci-no-login
+      - name: Check tailscale's result
+        env:
+          OUTCOME: ${{ steps.tailscale.outcome }}
+        run: |
+          set -euo pipefail
+          test "$OUTCOME" = failure || { echo "::error::joining should fail without id-token permission (outcome $OUTCOME)"; exit 1; }
+          mode=$(sudo stat -c '%a %U' /var/run/tailscale)
+          test "$mode" = "700 root" || { echo "::error::/var/run/tailscale is $mode"; exit 1; }
+          echo "socket: $(sudo stat -c '%a %U' /var/run/tailscale/tailscaled.sock)"
+          if tailscale status --json >/dev/null 2>err.txt; then
+            echo "::error::the job user still reaches tailscaled's LocalAPI"; exit 1
+          fi
+          cat err.txt
+          grep -q "permission denied" err.txt
+          state=$(sudo tailscale status --json | jq -re .BackendState)
+          echo "root: $state"
