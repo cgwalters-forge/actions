@@ -1,0 +1,12 @@
+name: Secure host setup
+description: >-
+  Close what the runner image leaves open to other local users: make the
+  job user's home private, remove world write access from system paths,
+  and drop per-user variables from /etc/environment. Needs passwordless
+  sudo; idempotent.
+outputs:
+  changed:
+    description: Whether anything was changed ("true" or "false").
+runs:
+  using: node24
+  main: main.mjs
