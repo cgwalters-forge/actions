@@ -1,0 +1,29 @@
+# sandbox-share
+
+Publishes a file, a directory tree or literal content as a root-owned,
+world-readable copy under `/etc/agent-share/<name>`, so that the
+sandboxed steps of a
+[workflow-compiler](https://github.com/cgwalters-forge/workflow-compiler)
+job can read it but not change it. It is what the compiler emits for a
+`share` runner step, pinned by commit; it runs as root through `sudo`,
+before the job enters its sandbox.
+
+```yaml
+- uses: cgwalters-forge/actions/sandbox-share@<sha>
+  with:
+    name: config
+    path: ci/config.toml
+```
+
+Inputs:
+
+- `name`: the name under `/etc/agent-share`, matching
+  `[A-Za-z0-9][A-Za-z0-9._-]*`.
+- `path`: a file or directory to copy, relative to the workspace.
+- `content`: literal file content, used when `path` is empty.
+
+The copy is built next to its final name and renamed into place, owned by
+root with 0644 files and 0755 directories. A symlink or special file in
+the source, or a `path` that goes through a symlink, is refused: a
+checkout can hold a symlink to `/etc/shadow`, and following it as root
+would publish the target to every user.

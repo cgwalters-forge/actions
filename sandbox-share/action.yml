@@ -1,0 +1,31 @@
+name: Sandbox share
+description: >-
+  Publish a file, a directory tree or literal content as a root-owned,
+  read-only copy under /etc/agent-share/<name>, for the sandboxed steps of
+  a workflow-compiler job. Needs passwordless sudo, so it runs before the
+  job enters its sandbox.
+inputs:
+  name:
+    description: The name under /etc/agent-share ([A-Za-z0-9][A-Za-z0-9._-]*).
+    required: true
+  path:
+    description: >-
+      A file or directory to copy, relative to the workspace. A symlink in
+      or below it is refused.
+    required: false
+    default: ""
+  content:
+    description: Literal file content, used when path is empty.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    # Inputs reach the script as environment variables, never as script
+    # text, so expressions in them stay data.
+    - shell: bash
+      env:
+        SHARE_NAME: ${{ inputs.name }}
+        SHARE_PATH: ${{ inputs.path }}
+        SHARE_CONTENT: ${{ inputs.content }}
+      run: sudo --preserve-env=SHARE_NAME,SHARE_PATH,SHARE_CONTENT node "$GITHUB_ACTION_PATH/share.cjs"
