@@ -30,3 +30,31 @@ jobs:
           fail: true
       - name: actionlint
         run: docker run --rm -v "$PWD:/repo" -w /repo docker.io/rhysd/actionlint:1.7.12 -color
+      # sandbox-share on this runner: content, a file and a directory are
+      # shared root-owned and read-only, and a symlink is refused.
+      - name: Make files to share
+        run: |
+          mkdir -p share-test/dir && echo one >share-test/dir/a && echo two >share-test/file
+          ln -s /etc/shadow share-test/shadow
+      - uses: ./sandbox-share
+        with:
+          name: greeting
+          content: hello from ${{ github.job }}
+      - uses: ./sandbox-share
+        with:
+          name: file
+          path: share-test/file
+      - uses: ./sandbox-share
+        with:
+          name: dir
+          path: share-test/dir
+      - id: share-symlink
+        continue-on-error: true
+        uses: ./sandbox-share
+        with:
+          name: shadow
+          path: share-test/shadow
+      - name: Check sandbox-share's result
+        env:
+          SYMLINK: ${{ steps.share-symlink.outcome }}
+        run: node sandbox-share/check.mjs
