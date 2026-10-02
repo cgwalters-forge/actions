@@ -58,3 +58,20 @@ jobs:
         env:
           SYMLINK: ${{ steps.share-symlink.outcome }}
         run: node sandbox-share/check.mjs
+      - name: Unit tests
+        run: node --test secure-host-setup/lib.test.mjs secure-host-setup/fsafe.test.mjs
+      # The action itself, on this hosted runner: it must leave the job
+      # user able to do what it could before, and a second run must find
+      # nothing to change.
+      - id: secure
+        uses: ./secure-host-setup
+      - id: secure-again
+        uses: ./secure-host-setup
+      - name: Check secure-host-setup's result
+        env:
+          CHANGED_AGAIN: ${{ steps.secure-again.outputs.changed }}
+        run: >-
+          node secure-host-setup/check.mjs "$RUNNER_TOOL_CACHE" /usr/local/bin
+          /usr/share/dotnet /opt/pipx /opt/pipx_bin /opt/az
+      - name: Install a tool with pipx as the job user
+        run: pipx install cowsay && cowsay -t ok
