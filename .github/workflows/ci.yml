@@ -58,6 +58,8 @@ jobs:
         env:
           SYMLINK: ${{ steps.share-symlink.outcome }}
         run: node sandbox-share/check.mjs
+      - name: tailscale unit tests
+        run: node --test tailscale/*.test.mjs
       # tailscale without a tailnet: with no id-token permission the login
       # fails after tailscaled started (and after the job user reached its
       # LocalAPI, which the action's own readiness check does), so this
@@ -78,7 +80,16 @@ jobs:
           mode=$(sudo stat -c '%a %U' /var/run/tailscale)
           test "$mode" = "700 root" || { echo "::error::/var/run/tailscale is $mode"; exit 1; }
           echo "socket: $(sudo stat -c '%a %U' /var/run/tailscale/tailscaled.sock)"
-          if tailscale status --json >/dev/null 2>err.txt; then
+          # The CLI is root's only too, which is what keeps the upstream
+          # action's cleanup from running sudo at the end of the job.
+          cli=$(sudo stat -c '%a %U' /usr/local/bin/tailscale)
+          test "$cli" = "700 root" || { echo "::error::/usr/local/bin/tailscale is $cli"; exit 1; }
+          if tailscale version >/dev/null 2>&1; then
+            echo "::error::the job user can still run the tailscale CLI"; exit 1
+          fi
+          # A CLI of the job user's own must not get through either.
+          sudo install -m 0755 -o "$(id -u)" /usr/local/bin/tailscale "$RUNNER_TEMP/tailscale"
+          if "$RUNNER_TEMP/tailscale" status --json >/dev/null 2>err.txt; then
             echo "::error::the job user still reaches tailscaled's LocalAPI"; exit 1
           fi
           cat err.txt

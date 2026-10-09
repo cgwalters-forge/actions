@@ -23,21 +23,44 @@ inputs:
     required: false
     default: ""
   args:
-    description: Additional arguments to `tailscale up`, e.g. --accept-dns=false.
+    description: Additional arguments to `tailscale up`; DNS acceptance is always disabled.
     required: false
     default: ""
+  proxy:
+    description: Inference proxy URL; empty uses the organization's lookaside setting.
+    required: false
+    default: ""
+  check:
+    description: Report granted scopes and verify the proxy returns unauthenticated HTTP 401.
+    required: false
+    default: "false"
+outputs:
+  proxy:
+    description: Inference proxy URL for the calling workflow.
+    value: ${{ steps.settings.outputs.proxy }}
 runs:
   using: composite
   steps:
+    - name: Choose organization settings
+      id: settings
+      shell: bash
+      env:
+        REPOSITORY_OWNER: ${{ github.repository_owner }}
+        OAUTH_CLIENT_ID: ${{ inputs.oauth-client-id }}
+        AUDIENCE: ${{ inputs.audience }}
+        TAGS: ${{ inputs.tags }}
+        PROXY: ${{ inputs.proxy }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/setup.mjs"
     - name: Connect to the tailnet
       id: join
       uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
       with:
-        oauth-client-id: ${{ inputs.oauth-client-id }}
-        audience: ${{ inputs.audience }}
-        tags: ${{ inputs.tags }}
+        oauth-client-id: ${{ steps.settings.outputs.oauth-client-id }}
+        audience: ${{ steps.settings.outputs.audience }}
+        tags: ${{ steps.settings.outputs.tags }}
         hostname: ${{ inputs.hostname }}
-        args: ${{ inputs.args }}
+        args: ${{ inputs.args }} --accept-dns=false
     # The LocalAPI socket is 0666 and doesn't check who dials through it:
     # with it, any local user could `tailscale nc` to every node the tags
     # allow, as this node, and list the tailnet with `tailscale status`.
@@ -50,8 +73,20 @@ runs:
       env:
         JOINED: ${{ steps.join.outcome == 'success' }}
       run: |
+        # Upstream's post hook skips cleanup when its CLI is inaccessible.
+        # The ephemeral, in-memory node disappears after runner teardown.
+        if sudo test -f /usr/local/bin/tailscale; then sudo chmod 0700 /usr/local/bin/tailscale; fi
         if ! sudo test -d /var/run/tailscale; then echo "tailscaled is not running"; exit 0; fi
         sudo chmod 0700 /var/run/tailscale
         echo "/var/run/tailscale: $(sudo stat -c '%a %U:%G' /var/run/tailscale)"
         # root still gets through (by path: RHEL's sudo has no /usr/local/bin in its PATH).
-        if test "$JOINED" = true; then sudo "$(command -v tailscale)" status --self >/dev/null; fi
+        if test "$JOINED" = true; then sudo /usr/local/bin/tailscale status --self >/dev/null; fi
+    - name: Check tailnet identity and proxy
+      if: inputs.check == 'true'
+      shell: bash
+      env:
+        AUDIENCE: ${{ steps.settings.outputs.audience }}
+        OAUTH_CLIENT_ID: ${{ steps.settings.outputs.oauth-client-id }}
+        PROXY: ${{ steps.settings.outputs.proxy }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/check.mjs"

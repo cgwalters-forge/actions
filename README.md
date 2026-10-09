@@ -6,7 +6,7 @@ this repository's issues.
 
 | Action | Status | Roadmap |
 | --- | --- | --- |
-| [tailscale](tailscale/README.md) | New; CI checks the socket is closed after a join that fails, no real join (no tailnet credentials here) | Replace devspace.yml's and agent.yml's tailscale/github-action steps; take over the RHEL prerequisites |
+| [tailscale](tailscale/README.md) | Settings by organization; CI runs its unit tests and checks the socket and CLI are closed after a join that fails, no real join (no tailnet credentials here) | Replace devspace.yml's and agent.yml's tailscale/github-action steps; take over the RHEL prerequisites |
 
 Licensed under either of [Apache-2.0](LICENSE-APACHE) or
 [MIT](LICENSE-MIT), at your option.
