@@ -212,9 +212,14 @@ attestation with `gh attestation verify`, against the signer in
 branch, on a GitHub-hosted runner. Every host fix takes an agentic-job
 release, then a pin update here.
 
-The pin is **v0.6.14**, built from agentic-job `489c69d`; the
-[adoption checkpoint](docs/evidence.md#adoption-checkpoint-2026-11-15)
-records its attestation and hosted Ubuntu results. Under
+The pin is **v0.6.16**, built from agentic-job `2a36e1b`; its release and
+image verification succeeded in [release run
+44126840510](https://github.com/ckyrouac/agentic-job/actions/runs/44126840510).
+Its immutable image digest is
+`sha256:f0da375d69800befddc79bbcd4722555022ed23427607c2297b933dccfdb28d2`.
+The [adoption checkpoint](docs/evidence.md#adoption-checkpoint-2026-11-15)
+records the previous v0.6.14 pin's attestation and hosted Ubuntu results, not
+a fresh host canary for v0.6.16. Under
 `deny-runner-reads` it discards all new host core dumps
 ([agentic-job#3154](https://github.com/cgwalters-forge/agentic-job/pull/3154)),
 so a step cannot force another process of the runner's user to dump core

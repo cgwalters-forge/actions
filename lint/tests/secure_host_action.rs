@@ -260,9 +260,27 @@ fn missing_or_malformed_signer_is_refused_newlines_included() {
 #[test]
 fn checked_in_pin_and_signer_are_valid_and_written_as_outputs() {
     let temp = TempDir::new();
+    assert_eq!(
+        fs::read_to_string(secure_host().join("Containerfile.pin")).unwrap(),
+        concat!(
+            "FROM ghcr.io/ckyrouac/secure-host:v0.6.16@sha256:",
+            "f0da375d69800befddc79bbcd4722555022ed23427607c2297b933dccfdb28d2\n"
+        )
+    );
     let out = step(PIN_STEP).run(&temp, &[("ACTION", &secure_host())], &[]);
     succeeded(&out);
     let output = temp.read("output").unwrap();
+    assert_eq!(
+        output,
+        concat!(
+            "image=ghcr.io/ckyrouac/secure-host@sha256:",
+            "f0da375d69800befddc79bbcd4722555022ed23427607c2297b933dccfdb28d2\n",
+            "repository=ckyrouac/agentic-job\n",
+            "cert-identity=https://github.com/ckyrouac/agentic-job/",
+            ".github/workflows/release.yml@refs/heads/main\n",
+            "source-ref=refs/heads/main\n"
+        )
+    );
     let lines: Vec<_> = output.lines().collect();
     assert_eq!(lines.len(), 4, "{output}");
     let (name, digest) = lines[0]
