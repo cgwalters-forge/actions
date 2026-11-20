@@ -348,7 +348,7 @@ fn triage_outputs_from_allow_widens_only_triage() {
         ),
         (
             "fix",
-            "push_to_pull_request_branch,noop,missing_tool,missing_data",
+            "push_to_pull_request_branch,add_comment,noop,missing_tool,missing_data",
         ),
         ("triage", "add_comment,noop,missing_tool,missing_data"),
         ("research", "add_comment,noop,missing_tool,missing_data"),

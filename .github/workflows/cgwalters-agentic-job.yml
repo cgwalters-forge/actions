@@ -606,7 +606,7 @@ jobs:
       # GitHub cannot close only at an expected head/base, and apply's retry
       # path can also close by number. Do not file a replacement without the
       # corresponding disposition either. Only a confirmed issue gets all.
-      outputs: ${{ inputs.kind == 'review' && 'add_comment,noop' || (inputs.kind == 'implement' && 'create_pull_request,noop,missing_tool,missing_data' || (inputs.kind == 'fix' && 'push_to_pull_request_branch,noop,missing_tool,missing_data' || (inputs.kind == 'triage' && inputs.triage-outputs-from-allow && needs.target.outputs.item-kind == 'issue' && 'all' || 'add_comment,noop,missing_tool,missing_data'))) }}
+      outputs: ${{ inputs.kind == 'review' && 'add_comment,noop' || (inputs.kind == 'implement' && 'create_pull_request,noop,missing_tool,missing_data' || (inputs.kind == 'fix' && 'push_to_pull_request_branch,add_comment,noop,missing_tool,missing_data' || (inputs.kind == 'triage' && inputs.triage-outputs-from-allow && needs.target.outputs.item-kind == 'issue' && 'all' || 'add_comment,noop,missing_tool,missing_data'))) }}
       max-outputs: ${{ inputs.kind == 'review' && '1' || '3' }}
       # A fix has bounds of its own: pushing to a pull request's branch is
       # allowed for the repositories fix.toml names and no other. Since
