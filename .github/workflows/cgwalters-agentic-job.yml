@@ -650,7 +650,9 @@ jobs:
       review: ${{ inputs.kind == 'review' }}
       review-item: ${{ inputs.kind == 'review' && inputs.item || '' }}
       review-head: ${{ inputs.kind == 'review' && inputs.head || '' }}
-      review-task: workflow/review.md
+      # Tracker's workflow/review.md at this commit plus the caller's additions.
+      review-shared-task: ${{ inputs.kind == 'review' && 'cgwalters-forge/tracker@dc47088c8344a459d01bfedbc1f3ed67cd4976b8' || '' }}
+      review-task: ${{ inputs.kind == 'review' && 'workflow/review-additions.md' || 'workflow/review.md' }}
       # The pull request a fix pushes to: policy reads its branch and head.
       push-item: ${{ inputs.kind == 'fix' && inputs.item || '' }}
       inference-url: ${{ needs.target.outputs.inference-url }}
